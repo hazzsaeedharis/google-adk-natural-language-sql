@@ -1,0 +1,4 @@
+requests
+python-dotenv
+google-adk
+psycopg2-binary 
