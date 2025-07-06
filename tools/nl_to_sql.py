@@ -1,12 +1,11 @@
 import os
-import requests
-from google.adk.agents import Agent
-from dotenv import load_dotenv
-import psycopg2
 import re
+import requests
+import psycopg2
+from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 PGDATABASE = os.getenv("PGDATABASE")
 PGUSER = os.getenv("PGUSER")
@@ -33,6 +32,27 @@ def ask_llm(prompt: str) -> str:
             return "Received an unexpected response format from Gemini API."
     else:
         return f"Request failed with status code {response.status_code}: {response.text}"
+
+def execute_sql(sql: str) -> dict:
+    """Executes a SQL query and returns the results."""
+    try:
+        conn = psycopg2.connect(
+            dbname=PGDATABASE,
+            user=PGUSER,
+            password=PGPASSWORD,
+            host=PGHOST,
+            port=PGPORT
+        )
+        cur = conn.cursor()
+        cur.execute(sql)
+        rows = cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        results = [dict(zip(columns, row)) for row in rows]
+        cur.close()
+        conn.close()
+        return {"status": "success", "sql": sql, "results": results}
+    except Exception as e:
+        return {"status": "error", "sql": sql, "error_message": str(e)}
 
 # Table schema context for Gemini prompt
 table_schema = """
@@ -70,34 +90,4 @@ SQL:
     print("raw_sql: ", raw_sql)
     sql = extract_sql(raw_sql)
     print("sql: ", sql)
-    # Connect to Postgres and execute
-    try:
-        conn = psycopg2.connect(
-            dbname=PGDATABASE,
-            user=PGUSER,
-            password=PGPASSWORD,
-            host=PGHOST,
-            port=PGPORT
-        )
-        cur = conn.cursor()
-        cur.execute(sql)
-        rows = cur.fetchall()
-        columns = [desc[0] for desc in cur.description]
-        results = [dict(zip(columns, row)) for row in rows]
-        cur.close()
-        conn.close()
-        return {"status": "success", "sql": sql, "results": results}
-    except Exception as e:
-        return {"status": "error", "sql": sql, "error_message": str(e)}
-
-root_agent = Agent(
-    name="NL2SQL_Agent",
-    model="gemini-2.0-flash",
-    description=(
-        "Agent that converts natural language questions to SQL queries for the 'optimusx' Postgres database and returns the results."
-    ),
-    instruction=(
-        "You are a helpful agent that takes user questions about the 'distribution', 'sort', and 'stores' tables, generates SQL, executes it, and returns the results."
-    ),
-    tools=[nl_to_sql_and_execute],
-)
+    return execute_sql(sql)
